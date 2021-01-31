@@ -57,6 +57,14 @@ class BBObject:
     def __init__(self, points):
         self.center = get_center(points)
         self.points = points
+        self.original_points = points
+
+    def set_points(self, points):
+        self.points = points
+        self.center = get_center(points)
+
+    def get_points(self):
+        return self.points
 
 # it returns list of numpy arrays with object coordinates
 # One object has 4 points, every point has two coordinates
@@ -73,7 +81,6 @@ def get_object_coordinates(segment_frame):
     for contour in contours:
         corner_points = getApprox(contour, 0.01)
         points = np.float32(list(map(lambda x: x[0], corner_points)))
-        points = sort_points(points)
 
         try:
             for point in points:
@@ -82,6 +89,7 @@ def get_object_coordinates(segment_frame):
             pass
 
         points = get_4points_with_highest_area(points)
+        points = sort_points(np.array(points))
 
         if len(points) == 4:
             result.append(points)
@@ -170,10 +178,28 @@ def generate_result_frame(frame, frame_index, replacement, objects):
         transformed = cv2.warpPerspective(replacement, transformation, (frame.shape[1], frame.shape[0]))
         transformed = enhance_colors(frame, transformed)
 
-
         cv2.fillConvexPoly(frame, sort_points(object.astype(int)), 0, 16)
 
         frame = frame + transformed
+
+        # DEbug
+        # cv2.putText(frame, f'ID{global_obj_index}', tuple(coords.center), cv2.FONT_HERSHEY_SIMPLEX, 1,
+        #               (0, 255, 255), 2, cv2.LINE_AA, False)
+        #
+        # for i in coords.points:
+        #     cv2.circle(frame, tuple(i), 10, (0, 0, 0), 6)
+        #
+        # if global_obj.get_frame_coords(frame_index-1) is not None:
+        #     for i in global_obj.get_frame_coords(frame_index-1).original_points:
+        #         cv2.circle(frame, tuple(i), 3, (255, 0, 0), 3)
+        #
+        # for i in coords.original_points:
+        #         cv2.circle(frame, tuple(i), 5, (0, 255, 0), 3)
+
+        # if global_obj.get_frame_coords(frame_index + 1) is not None:
+        #     for i in global_obj.get_frame_coords(frame_index+1).original_points:
+        #         cv2.circle(frame, tuple(i), 7, (0, 0, 255), 3)
+        # Debug
 
         counter += 1
 
@@ -195,11 +221,7 @@ def enhance_colors(parent, injection):
 
 
 def get_center(points):
-    M = cv2.moments(np.array(points))
-    cX = int(M["m10"] / M["m00"])
-    cY = int(M["m01"] / M["m00"])
-
-    return (cX, cY)
+    return np.mean(np.array(points), axis=0)
 
 def blur_transformed(src, kernel=(4, 4), transformation=None, with_edge=False):
     # Create ROI coordinates
