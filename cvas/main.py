@@ -134,8 +134,22 @@ class GlobalObject:
     def get_frame_coords(self, index):
         return self.frames.get(index)
 
+    def _add_coords_to_matrix(self, matrix, frame_id):
+        coords = self.get_frame_coords(frame_id)
+        if coords is not None:
+            matrix.append(coords.get_points())
+
+    def stabilize(self):
+        for frame_id in self.frames:
+            matrix = []
+            self._add_coords_to_matrix(matrix, frame_id - 1)
+            self._add_coords_to_matrix(matrix, frame_id)
+            self._add_coords_to_matrix(matrix, frame_id + 1)
+
+            self.frames[frame_id].set_points(np.mean(matrix, axis=0))
+
 def generate_objects(frames_points):
-    thresh = 40
+    thresh = 60
     objects = dict()
 
     prev_objects = []
@@ -145,20 +159,28 @@ def generate_objects(frames_points):
     for i in range(len(frames_points)):
         frame_data = frames_points[i]
 
+        already_checked_objs = set()
+
         for object in frame_data:
             matched = False
 
-            for prev_obj in prev_objects:
-                prev_center = prev_obj.cumulative_center()
+            for key in objects:
+                if key in already_checked_objs:
+                    continue
 
-                if prev_center is not None and cv2.norm(object.center - prev_center, cv2.NORM_L2) < thresh:
-                    prev_obj.add_new_points(object)
+                prev_obj = objects[key]
+                prev_center = prev_obj.cumulative_center(i)
+
+                if prev_center is not None and cv2.norm(np.array(object.center) - np.array(prev_center), cv2.NORM_L2) < thresh:
+                    prev_obj.add_coords(i, object)
                     matched = True
+                    already_checked_objs.add(key)
 
             if not matched:
                 last_id += 1
                 new_obj = GlobalObject(last_id, i, object)
                 objects[last_id] = new_obj
+                already_checked_objs.add(last_id)
 
     return objects
 
@@ -201,15 +223,18 @@ def main():
 
     # Filter objects
     for i in objects:
-        if objects[i].frames_length() > 3:
+        if objects[i].frames_length() > 2:
             final_objects[i] = objects[i]
+
+    for object_id in final_objects:
+        final_objects[object_id].stabilize()
 
     for index in range(frames_count):
         frame = result_frames[index]
         generated_frame = generate_result_frame(frame, index, replacement, final_objects)
+        result_frames[index] = generated_frame
 
-        logger.info(f"Handled {counter} frame")
-        counter += 1
+        logger.info(f"Handled {index} frame")
 
         if args.s > 0:
 
@@ -217,7 +242,7 @@ def main():
             show_images = np.concatenate((frame, mask_image, generated_frame), axis=1)
             show_image(args, show_images)
 
-            # if cv2.waitKey(20) & 0xFF == 27:
+            # if cv2.waitKey(0) & 0xFF == 27:
             #     break
 
         end = time.time()
